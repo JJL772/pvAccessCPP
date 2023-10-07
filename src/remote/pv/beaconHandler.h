@@ -61,6 +61,9 @@ public:
                       epics::pvData::int16 sequentalID,
                       epics::pvData::int16 changeCount,
                       const epics::pvData::PVFieldPtr& data);
+
+    epics::pvData::TimeStamp getAge() const { return _createdAt; }
+
 private:
     /**
      * Context instance.
@@ -85,6 +88,8 @@ private:
      * First beacon flag.
      */
     bool _first;
+
+    epics::pvData::TimeStamp _createdAt;
 
     /**
      * Update beacon.

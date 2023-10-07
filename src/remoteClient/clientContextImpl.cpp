@@ -3970,7 +3970,7 @@ public:
     static size_t num_instances;
 
     InternalClientContextImpl(const Configuration::shared_pointer& conf) :
-        m_addressList(""), m_autoAddressList(true), m_connectionTimeout(30.0f), m_beaconPeriod(15.0f),
+        m_addressList(""), m_autoAddressList(true), m_connectionTimeout(30.0f), m_beaconPeriod(15.0f), m_maxBeacons(10), m_maxBeaconLifetime(15),
         m_broadcastPort(PVA_BROADCAST_PORT), m_receiveBufferSize(MAX_TCP_RECV),
         m_lastCID(0), m_lastIOID(0),
         m_version("pvAccess Client", "cpp",
@@ -4033,6 +4033,8 @@ public:
         out << "AUTO_ADDR_LIST     : " << (m_autoAddressList ? "true" : "false") << std::endl;
         out << "CONNECTION_TIMEOUT : " << m_connectionTimeout << std::endl;
         out << "BEACON_PERIOD      : " << m_beaconPeriod << std::endl;
+        out << "BEACON_MAX         : " << m_maxBeacons << std::endl;
+        out << "BEACON_MAX_AGE     : " << m_maxBeaconLifetime << std::endl;
         out << "BROADCAST_PORT     : " << m_broadcastPort << std::endl;;
         out << "RCV_BUFFER_SIZE    : " << m_receiveBufferSize << std::endl;
         out << "STATE              : ";
@@ -4127,6 +4129,8 @@ private:
         m_beaconPeriod = m_configuration->getPropertyAsFloat("EPICS_PVA_BEACON_PERIOD", m_beaconPeriod);
         m_broadcastPort = m_configuration->getPropertyAsInteger("EPICS_PVA_BROADCAST_PORT", m_broadcastPort);
         m_receiveBufferSize = m_configuration->getPropertyAsInteger("EPICS_PVA_MAX_ARRAY_BYTES", m_receiveBufferSize);
+        m_maxBeacons = m_configuration->getPropertyAsInteger("EPICS_PVA_BEACON_MAX", m_maxBeacons);
+        m_maxBeaconLifetime = m_configuration->getPropertyAsFloat("EPICS_PVA_BEACON_MAX_AGE", m_maxBeaconLifetime);
     }
 
     void internalInitialize() {
@@ -4363,6 +4367,42 @@ private:
         BeaconHandler::shared_pointer handler;
         if (it == m_beaconHandlers.end())
         {
+            TimeStamp now;
+            now.getCurrent();
+
+            double oldestAge = -1;
+            AddressBeaconHandlerMap::iterator oldestIt;
+
+            /* Before creating a new beacon, cleanup any old ones */
+            for (AddressBeaconHandlerMap::iterator it = m_beaconHandlers.begin(); it != m_beaconHandlers.end();)
+            {
+                double age = TimeStamp::diff(now, it->second->getAge());
+                if (age > oldestAge)
+                {
+                    oldestAge = age;
+                    oldestIt = it;
+                }
+
+                if (age < m_maxBeaconLifetime)
+                    ++it;
+                else
+                {
+                    it = m_beaconHandlers.erase(it);
+                #if DEBUG_BEACON_CLEANUP
+                    LOG(logLevelWarn, "Deleted beacon with age >= %f\n", m_maxBeaconLifetime);
+                #endif
+                }
+            }
+
+            /* None removed, axe the oldest we found */
+            if (m_beaconHandlers.size() >= m_maxBeacons)
+            {
+                m_beaconHandlers.erase(oldestIt);
+            #if DEBUG_BEACON_CLEANUP
+                LOG(logLevelWarn, "Too many beacon handlers and we didn't delete any during our cleanup; deleting the oldest one!\n");
+            #endif
+            }
+
             // stores weak_ptr
             handler.reset(new BeaconHandler(internal_from_this(), responseFrom));
             m_beaconHandlers[*responseFrom] = handler;
@@ -4454,6 +4494,16 @@ private:
      * Period in second between two beacon signals.
      */
     float m_beaconPeriod;
+
+    /**
+     * Max beacons allowed.
+     */
+    uint32_t m_maxBeacons;
+
+    /**
+     * Max beacon lifetime
+     */
+    float m_maxBeaconLifetime;
 
     /**
      * Broadcast (beacon, search) port number to listen to.

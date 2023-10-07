@@ -23,7 +23,7 @@ BeaconHandler::BeaconHandler(Context::shared_pointer const & context,
     _serverChangeCount(-1),
     _first(true)
 {
-
+    _createdAt.getCurrent();
 }
 
 BeaconHandler::~BeaconHandler()
