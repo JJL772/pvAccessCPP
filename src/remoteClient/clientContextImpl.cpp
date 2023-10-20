@@ -41,7 +41,12 @@
 
 #include <pv/pvAccessMB.h>
 
+#include <epicsExport.h>
+
 //#include <tr1/unordered_map>
+
+// strings MpsSupport.obj | grep "Custom mutex leak" to validate you're linking correctly
+extern "C" const char pvAccessMarker[] __attribute__((visibility("default"))) = "pvAccess-custom-leak-check";
 
 using std::tr1::dynamic_pointer_cast;
 using std::tr1::static_pointer_cast;
@@ -4377,21 +4382,23 @@ private:
             for (AddressBeaconHandlerMap::iterator it = m_beaconHandlers.begin(); it != m_beaconHandlers.end();)
             {
                 double age = TimeStamp::diff(now, it->second->getAge());
+                if (age >= m_maxBeaconLifetime)
+                {
+                    AddressBeaconHandlerMap::iterator toErase = it;
+                    ++it; /* Iterator to current is invalidated by erase, so do this before */
+                    m_beaconHandlers.erase(toErase);
+                #if DEBUG_BEACON_CLEANUP
+                    LOG(logLevelWarn, "Deleted beacon with age >= %f\n", m_maxBeaconLifetime);
+                #endif
+                    continue;
+                }
+
                 if (age > oldestAge)
                 {
                     oldestAge = age;
                     oldestIt = it;
                 }
-
-                if (age < m_maxBeaconLifetime)
-                    ++it;
-                else
-                {
-                    it = m_beaconHandlers.erase(it);
-                #if DEBUG_BEACON_CLEANUP
-                    LOG(logLevelWarn, "Deleted beacon with age >= %f\n", m_maxBeaconLifetime);
-                #endif
-                }
+                ++it;
             }
 
             /* None removed, axe the oldest we found */
